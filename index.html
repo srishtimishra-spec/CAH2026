@@ -638,10 +638,7 @@ function viewDashboard(v){
 
   // announcements
   const ann = el("div","cah-card");
-  ann.appendChild(cardHead("Announcements", null, ()=>{
-    const msg = prompt("New announcement / update:");
-    if(msg){ DATA.announcements.unshift({id:"A"+Date.now(),msg,date:"2026-08-17"}); persist(); renderView(); }
-  }, "+ Add"));
+  ann.appendChild(cardHead("Announcements", null, ()=>openAnnouncementModal(), "+ Add"));
   const al = el("div","cah-ann-list");
   if(!DATA.announcements.length) al.appendChild(el("div","cah-empty","No announcements yet."));
   DATA.announcements.slice(0,5).forEach(a=>{
@@ -747,12 +744,12 @@ function openAgendaEditor(){
     const tb=el("tbody");
     DATA.agenda.filter(a=>a.day===day).forEach(a=>{
       const tr=el("tr");
-      const mk=(key,w)=>{const td=el("td");const inp=el("input");inp.value=a[key]||"";inp.oninput=()=>{a[key]=inp.value;persist();};if(w)inp.style.width=w;td.appendChild(inp);return td;};
+      const mk=(key,w)=>{const td=el("td");const inp=el("input");inp.value=a[key]||"";inp.oninput=()=>{a[key]=inp.value;};if(w)inp.style.width=w;td.appendChild(inp);return td;};
       tr.appendChild(mk("time"));
       tr.appendChild(mk("a"));
       tr.appendChild(mk("b"));
-      const tsel=el("td");const s=el("select");["plenary","parallel","special","break"].forEach(o=>{const op=el("option",null,o);if(a.type===o)op.selected=true;s.appendChild(op);});s.onchange=()=>{a.type=s.value;persist();};tsel.appendChild(s);tr.appendChild(tsel);
-      const del=el("td");const b=el("button","cah-x","×");b.onclick=()=>{DATA.agenda=DATA.agenda.filter(x=>x.id!==a.id);persist();ov.remove();openAgendaEditor();};del.appendChild(b);tr.appendChild(del);
+      const tsel=el("td");const s=el("select");["plenary","parallel","special","break"].forEach(o=>{const op=el("option",null,o);if(a.type===o)op.selected=true;s.appendChild(op);});s.onchange=()=>{a.type=s.value;};tsel.appendChild(s);tr.appendChild(tsel);
+      const del=el("td");const b=el("button","cah-x","×");b.onclick=()=>{DATA.agenda=DATA.agenda.filter(x=>x.id!==a.id);ov.remove();openAgendaEditor();};del.appendChild(b);tr.appendChild(del);
       tb.appendChild(tr);
     });
     tbl.appendChild(tb); body.appendChild(tbl);
@@ -762,7 +759,8 @@ function openAgendaEditor(){
   });
   m.appendChild(body);
   const foot=el("div","cah-modal-foot"); const sp=el("div");sp.style.flex="1";foot.appendChild(sp);
-  const done=el("button","cah-btn cah-btn-primary","Done"); done.onclick=()=>{ov.remove();renderView();}; foot.appendChild(done);
+  const done=el("button","cah-btn cah-btn-ghost","Cancel"); done.onclick=()=>{ov.remove();renderView();}; foot.appendChild(done);
+  const save=el("button","cah-btn cah-btn-primary","Save agenda"); save.onclick=async()=>{ await persist(); ov.remove(); renderView(); flash("Agenda saved"); }; foot.appendChild(save);
   m.appendChild(foot);
   m.querySelector(".cah-modal-x").onclick=()=>{ov.remove();renderView();};
   ov.onclick=e=>{if(e.target===ov){ov.remove();renderView();}};
@@ -1016,7 +1014,10 @@ function openPersonModal(id){
 function viewSessions(v){
   if(!DATA.sessions || !DATA.sessions.length){ DATA.sessions = SESSIONS.map(s=>({...s})); persist(); }
   const bar = el("div","cah-people-bar");
-  bar.innerHTML = `<div class="cah-people-intro">Point-of-contact and bio owner for every session, both days. Click a name field to reassign; changes save automatically.</div>`;
+  bar.innerHTML = `<div class="cah-people-intro">Point-of-contact and bio owner for every session, both days. Reassign names below, then Save.</div>`;
+  const saveBtn = el("button","cah-btn cah-btn-primary","Save changes");
+  saveBtn.onclick = async ()=>{ await persist(); flash("Sessions saved"); };
+  bar.appendChild(saveBtn);
   v.appendChild(bar);
   [["1","Day 1 — 7 September"],["2","Day 2 — 8 September"]].forEach(([day,label])=>{
     const h = el("div","cah-day-head",label); v.appendChild(h);
@@ -1159,11 +1160,7 @@ function renderResources(){
 /* ---------- NOTES ---------- */
 function viewNotes(v){
   const add = el("button","cah-btn cah-btn-primary","+ Add note / decision");
-  add.onclick=()=>{
-    const title=prompt("Title (e.g. Weekly sync, 20 Aug):"); if(!title)return;
-    const body=prompt("Notes / decisions:")||"";
-    DATA.notes.unshift({id:"N"+Date.now(),title,body,date:"2026-08-17"}); persist(); renderView();
-  };
+  add.onclick=()=>openNoteModal(null);
   v.appendChild(add);
   const list = el("div","cah-notes-list");
   if(!DATA.notes.length) list.appendChild(el("div","cah-empty","No meeting notes yet. Add decisions here to keep one record."));
@@ -1171,11 +1168,53 @@ function viewNotes(v){
     const card = el("div","cah-note-card");
     card.innerHTML = `<div class="cah-note-head"><b>${esc(n.title)}</b><span>${fmtDate(n.date)}</span></div>
       <div class="cah-note-body">${esc(n.body).replace(/\n/g,"<br>")}</div>`;
-    const del=el("button","cah-x","×"); del.onclick=()=>{DATA.notes=DATA.notes.filter(x=>x.id!==n.id);persist();renderView();};
+    const edit=el("button","cah-x cah-note-edit",""); edit.innerHTML=icon('note'); edit.title="Edit";
+    edit.onclick=()=>openNoteModal(n.id);
+    const del=el("button","cah-x","×"); del.title="Delete"; del.onclick=()=>{if(confirm("Delete this note?")){DATA.notes=DATA.notes.filter(x=>x.id!==n.id);persist();renderView();}};
+    card.querySelector(".cah-note-head").appendChild(edit);
     card.querySelector(".cah-note-head").appendChild(del);
     list.appendChild(card);
   });
   v.appendChild(list);
+}
+
+function openNoteModal(id){
+  const n = id? DATA.notes.find(x=>x.id===id) : {id:"N"+Date.now(),title:"",body:"",date:"2026-08-17"};
+  const isNew=!id;
+  const ov=el("div","cah-modal-ov"); const m=el("div","cah-modal");
+  m.innerHTML=`<div class="cah-modal-head"><h2>${isNew?"Add note / decision":"Edit note"}</h2><button class="cah-modal-x">×</button></div>`;
+  const body=el("div","cah-modal-body");
+  const f=(label,key,ta)=>{const w=el("label","cah-field");w.appendChild(el("span",null,label));const i=ta?el("textarea"):el("input");i.value=n[key]||"";i.dataset.key=key;w.appendChild(i);return w;};
+  body.appendChild(f("Title (e.g. Weekly sync, 20 Aug)","title",false));
+  body.appendChild(f("Notes / decisions","body",true));
+  m.appendChild(body);
+  const foot=el("div","cah-modal-foot");
+  if(!isNew){const del=el("button","cah-btn cah-btn-danger","Delete");del.onclick=()=>{if(confirm("Delete this note?")){DATA.notes=DATA.notes.filter(x=>x.id!==n.id);persist();ov.remove();renderView();}};foot.appendChild(del);}
+  const sp=el("div");sp.style.flex="1";foot.appendChild(sp);
+  const c=el("button","cah-btn cah-btn-ghost","Cancel");c.onclick=()=>ov.remove();foot.appendChild(c);
+  const s=el("button","cah-btn cah-btn-primary",isNew?"Add":"Save");
+  s.onclick=async()=>{m.querySelectorAll("[data-key]").forEach(i=>{n[i.dataset.key]=i.value;});if(!n.title.trim()){flash("Title required");return;}if(isNew)DATA.notes.unshift(n);await persist();ov.remove();renderView();flash("Saved");};
+  foot.appendChild(s); m.appendChild(foot);
+  m.querySelector(".cah-modal-x").onclick=()=>ov.remove();
+  ov.onclick=e=>{if(e.target===ov)ov.remove();};
+  ov.appendChild(m); document.body.appendChild(ov);
+}
+
+function openAnnouncementModal(){
+  const a={id:"A"+Date.now(),msg:"",date:"2026-08-17"};
+  const ov=el("div","cah-modal-ov"); const m=el("div","cah-modal cah-modal-sm");
+  m.innerHTML=`<div class="cah-modal-head"><h2>Add announcement</h2><button class="cah-modal-x">×</button></div>`;
+  const body=el("div","cah-modal-body");
+  const w=el("label","cah-field");w.appendChild(el("span",null,"Announcement / update"));const i=el("textarea");i.dataset.key="msg";w.appendChild(i);body.appendChild(w);
+  m.appendChild(body);
+  const foot=el("div","cah-modal-foot");const sp=el("div");sp.style.flex="1";foot.appendChild(sp);
+  const c=el("button","cah-btn cah-btn-ghost","Cancel");c.onclick=()=>ov.remove();foot.appendChild(c);
+  const s=el("button","cah-btn cah-btn-primary","Save");
+  s.onclick=async()=>{a.msg=i.value.trim();if(!a.msg){flash("Message required");return;}DATA.announcements.unshift(a);await persist();ov.remove();renderView();flash("Announcement added");};
+  foot.appendChild(s); m.appendChild(foot);
+  m.querySelector(".cah-modal-x").onclick=()=>ov.remove();
+  ov.onclick=e=>{if(e.target===ov)ov.remove();};
+  ov.appendChild(m); document.body.appendChild(ov);
 }
 
 /* ============================================================
@@ -1367,6 +1406,9 @@ function injectStyles(){
   .cah-backup-btn{flex:1;font-family:inherit;font-size:11.5px;color:#cfe2ee;background:rgba(255,255,255,.06);
     border:1px solid rgba(255,255,255,.14);border-radius:8px;padding:8px 6px;cursor:pointer;transition:background .15s;}
   .cah-backup-btn:hover{background:rgba(255,255,255,.15);color:#fff;}
+  .cah-note-edit svg{width:13px;height:13px;}
+  .cah-note-edit{color:var(--grey);}
+  .cah-note-edit:hover{background:#eaf4fb;color:var(--blue);}
   .cah-side-count{margin-top:12px;padding:0 4px;font-size:12px;color:var(--blueT);}
   .cah-store-status{display:flex;align-items:center;gap:7px;margin-top:11px;padding:7px 10px;border-radius:8px;font-size:11px;line-height:1.3;}
   .cah-store-status.ok{background:rgba(140,183,63,.16);color:#cfe6a3;}
